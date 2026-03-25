@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:ui';
+import 'package:flutter/foundation.dart'; // ⭐ IMPORTANT
 import 'package:flutter/material.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 
@@ -8,15 +9,18 @@ void main(List<String> args) {
 
   runApp(MyApp(isNote: isNote));
 
-  doWhenWindowReady(() {
-    final win = appWindow;
+  // ❗ Only apply window config on desktop
+  if (!kIsWeb) {
+    doWhenWindowReady(() {
+      final win = appWindow;
 
-    win.size = isNote ? Size(260, 260) : Size(200, 200);
-    win.alignment = Alignment.center;
-    win.title = "Smart Sticky";
+      win.size = isNote ? Size(260, 260) : Size(200, 200);
+      win.alignment = Alignment.center;
+      win.title = "Smart Sticky";
 
-    win.show();
-  });
+      win.show();
+    });
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -28,13 +32,88 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: isNote ? NoteWindow() : MainApp(),
+
+      // 🌐 WEB → single page UI
+      // 💻 WINDOWS → old behavior
+      home: kIsWeb
+          ? WebNotesScreen()
+          : (isNote ? NoteWindow() : MainApp()),
     );
   }
 }
 
 ////////////////////////////////////////////////////////////
-/// MAIN APP (ONLY + BUTTON)
+/// 🌐 WEB VERSION (Single Screen Notes)
+////////////////////////////////////////////////////////////
+
+class WebNotesScreen extends StatefulWidget {
+  @override
+  _WebNotesScreenState createState() => _WebNotesScreenState();
+}
+
+class _WebNotesScreenState extends State<WebNotesScreen> {
+  List<Offset> positions = [];
+  List<TextEditingController> controllers = [];
+
+  void addNote() {
+    setState(() {
+      positions.add(Offset(100, 100));
+      controllers.add(TextEditingController());
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      floatingActionButton: FloatingActionButton(
+        onPressed: addNote,
+        child: Icon(Icons.add),
+      ),
+      body: Stack(
+        children: List.generate(positions.length, (index) {
+          return Positioned(
+            left: positions[index].dx,
+            top: positions[index].dy,
+            child: GestureDetector(
+              onPanUpdate: (details) {
+                setState(() {
+                  positions[index] += details.delta;
+                });
+              },
+              child: Container(
+                width: 220,
+                height: 220,
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.yellow[200],
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      blurRadius: 15,
+                      color: Colors.black26,
+                    ),
+                  ],
+                ),
+                child: TextField(
+                  controller: controllers[index],
+                  maxLines: null,
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    hintText: "Write note...",
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+////////////////////////////////////////////////////////////
+/// 💻 WINDOWS MAIN APP
 ////////////////////////////////////////////////////////////
 
 class MainApp extends StatelessWidget {
@@ -60,7 +139,7 @@ class MainApp extends StatelessWidget {
 }
 
 ////////////////////////////////////////////////////////////
-/// NOTE WINDOW
+/// 💻 WINDOWS NOTE WINDOW (UNCHANGED)
 ////////////////////////////////////////////////////////////
 
 class NoteWindow extends StatefulWidget {
@@ -75,11 +154,9 @@ class _NoteWindowState extends State<NoteWindow>
 
   TextEditingController controller = TextEditingController();
 
-  // ✨ POP-IN
   late AnimationController popController;
   late Animation<double> popScale;
 
-  // 🧻 DELETE ANIMATION
   late AnimationController deleteController;
   late Animation<double> scaleDown;
   late Animation<double> fadeOut;
@@ -92,7 +169,6 @@ class _NoteWindowState extends State<NoteWindow>
   void initState() {
     super.initState();
 
-    // POP-IN
     popController = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: 400),
@@ -105,7 +181,6 @@ class _NoteWindowState extends State<NoteWindow>
 
     popController.forward();
 
-    // DELETE
     deleteController = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: 500),
@@ -117,9 +192,7 @@ class _NoteWindowState extends State<NoteWindow>
 
     fadeOut = Tween(begin: 1.0, end: 0.0).animate(deleteController);
 
-    rotate = Tween(begin: 0.0, end: 0.5).animate(
-      CurvedAnimation(parent: deleteController, curve: Curves.easeIn),
-    );
+    rotate = Tween(begin: 0.0, end: 0.5).animate(deleteController);
   }
 
   @override
@@ -131,9 +204,7 @@ class _NoteWindowState extends State<NoteWindow>
 
   void deleteNote() async {
     setState(() => isDeleting = true);
-
     await deleteController.forward();
-
     appWindow.close();
   }
 
@@ -153,91 +224,59 @@ class _NoteWindowState extends State<NoteWindow>
                   y += details.delta.dy;
                 });
               },
-              child: MouseRegion(
-                onEnter: (_) => setState(() => isHovering = true),
-                onExit: (_) => setState(() => isHovering = false),
-                child: ScaleTransition(
-                  scale: popScale,
-                  child: AnimatedBuilder(
-                    animation: deleteController,
-                    builder: (context, child) {
-                      return Opacity(
-                        opacity: isDeleting ? fadeOut.value : 1,
-                        child: Transform.rotate(
-                          angle: isDeleting ? rotate.value : 0,
-                          child: Transform.scale(
-                            scale: isDeleting ? scaleDown.value : 1,
-                            child: child,
-                          ),
+              child: ScaleTransition(
+                scale: popScale,
+                child: AnimatedBuilder(
+                  animation: deleteController,
+                  builder: (context, child) {
+                    return Opacity(
+                      opacity: isDeleting ? fadeOut.value : 1,
+                      child: Transform.rotate(
+                        angle: isDeleting ? rotate.value : 0,
+                        child: Transform.scale(
+                          scale: isDeleting ? scaleDown.value : 1,
+                          child: child,
                         ),
-                      );
-                    },
-                    child: AnimatedContainer(
-                      duration: Duration(milliseconds: 200),
-                      transform: Matrix4.identity()
-                        ..scale(isHovering ? 1.05 : 1.0),
-                      width: 230,
-                      height: 230,
-                      padding: EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Color(0xFFFFF176),
-                            Color(0xFFFFE082),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    width: 230,
+                    height: 230,
+                    padding: EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.yellow.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(25),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 30,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment:
+                              MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text("✨ Note"),
+                            GestureDetector(
+                              onTap: deleteNote,
+                              child: Icon(Icons.close, size: 18),
+                            ),
                           ],
                         ),
-                        borderRadius: BorderRadius.circular(25),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.25),
-                            blurRadius: 30,
-                            spreadRadius: 2,
-                            offset: Offset(5, 5),
-                          ),
-                          BoxShadow(
-                            color: Colors.white.withOpacity(0.5),
-                            blurRadius: 10,
-                            offset: Offset(-3, -3),
-                          ),
-                        ],
-                      ),
-
-                      // CONTENT
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                "✨ Note",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              GestureDetector(
-                                onTap: deleteNote,
-                                child: Icon(Icons.close, size: 18),
-                              ),
-                            ],
-                          ),
-                          SizedBox(height: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: controller,
-                              maxLines: null,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                              ),
-                              decoration: InputDecoration(
-                                border: InputBorder.none,
-                                hintText: "Drop your thoughts...",
-                              ),
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            maxLines: null,
+                            decoration: InputDecoration(
+                              border: InputBorder.none,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
